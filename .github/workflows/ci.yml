@@ -1,0 +1,42 @@
+name: CI
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - uses: pnpm/action-setup@v4
+        with: { version: '12.15.0' }
+      - name: Run crypto vector tests
+        run: npm ci && node tests/run.mjs
+      - name: Checkout Vencord & VDE plugins
+        run: |
+          git clone https://github.com/Vendicated/Vencord.git /tmp/Vencord
+          git -C /tmp/Vencord checkout a846785482f96c50f1160a04217e1e90283d2ec1
+          git clone --recursive https://git.nin0.dev/VendroidEnhanced/plugin.git /tmp/vde-plugin
+          git -C /tmp/vde-plugin checkout 3741bd8c7e19b3940cf3709271115bfc6d48c853
+          git -C /tmp/vde-plugin submodule update --init --recursive
+      - name: Install deps, typecheck plugin & build VDE web bundle
+        working-directory: /tmp/Vencord
+        run: |
+          mkdir -p src/userplugins
+          cp -r "$GITHUB_WORKSPACE/src/userplugins/aegiresE2EE" src/userplugins/
+          pnpm install --no-frozen-lockfile
+          pnpm add -w hash-wasm@4.13.0 @noble/ciphers@2.4.0
+          pnpm test:ts
+          cp -r /tmp/vde-plugin/plugins/* src/plugins/
+          node -e 'const fs=require("fs"),p=require("path");for(const l of fs.readFileSync("/tmp/vde-plugin/blacklisted-plugins.txt","utf8").split("\n")){const n=l.split("#")[0].trim();if(n)fs.rmSync(p.join("src/plugins",n),{recursive:true,force:true});}'
+          pnpm buildWeb
+          ls -lh dist/browser.js dist/browser.css dist/extension-chrome.zip dist/extension-firefox.zip dist/Vencord.user.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vencord-vde-aegires-e2ee
+          path: |
+            /tmp/Vencord/dist/browser.js
+            /tmp/Vencord/dist/browser.css
+            /tmp/Vencord/dist/browser.js.LEGAL.txt
+            /tmp/Vencord/dist/extension-chrome.zip
+            /tmp/Vencord/dist/extension-firefox.zip
+            /tmp/Vencord/dist/Vencord.user.js
