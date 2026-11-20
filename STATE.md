@@ -21,7 +21,7 @@ Next: Milestone 2 - scaffold src/userplugins/aegiresE2EE (pure browser TS, zero 
 - VDE fetches SharedPreferences "settings"."vencordLocation" (Constants.kt:4); custom URLs always redownload (HttpClient.kt:41-53) and inject in onPageStarted (VWebviewClient.kt:31-32). targetSdk 34 omits cleartext (AndroidManifest.xml:8-15) -> public HTTPS required. Include VendroidEnhanced/plugin so settings UI stays available.
 - Discord live CSP: script-src includes 'unsafe-eval' and blob: (allows WebAssembly + inline Blob Workers without browser flags); connect-src allows Discord CDN/media hosts.
 - Aegires wire protocol (Crypto.java, Argon2id.java, Blake2b.java, ForcedKeys.java, FileNames.java):
-  - KDF: NFKC password -> UTF-8 -> Argon2id v1.3 (RFC 9106, type=2, p=1, t=3, m=65536 KiB, 32B out). Salt: "dcenc2|user-key|v1" or "dcenc2|ctx|forced|<channelId>". Forced preset: ch 1378767422638522404 -> "breadtastesbetterthankey".
+  - KDF: NFKC password -> UTF-8 -> Argon2id v1.3 (RFC 9106, type=2, p=1, t=3, m=65536 KiB, 32B out). Salt: "dcenc2|user-key|v1" or "dcenc2|ctx|forced|<channelId>". Forced preset (ForcedKeys.java:19): only match Aegires PRESETS (ch 1562876012675465326); mismatched forced channels break key salt.
   - Presets: 0=AES-128-GCM (16B key, 12B tag, 16B pad), 1=AES-192-GCM (24B key, 14B tag, 32B pad), 2=AES-256-GCM (32B key, 16B tag, 64B pad).
   - Msg wire (v2): "\u00A7" + unpadded StdBase64([header=(2<<4)|preset, salt(16B), gcmCt+tag]). ISO 7816-4 pad (0x80 + 0x00* to padBlock). HKDF-SHA256(salt, master, info="dcenc2/msg"+preset+u16be(chLen)+ch+u16be(seLen)+se) -> key+nonce(12B); AAD=header+salt+info. Replies decrypt with replyChannel||channelId + replyAuthorId; optional leading "[sz:W,H]" stripped on decrypt and prepended on image upload.
   - File wire (v3): [header=(3<<4)|preset, salt(16B), chunks...]. 64 KiB chunks; HKDF info="dcenc2/file"+... -> key+prefix(7B); chunk nonce = prefix(7B)+u32be(counter)+lastFlag(1B); AAD=header+salt+info. Filename: FileNames.randomFor() + ".enc" before ext; detected via contains(".enc.") || endsWith(".enc").
@@ -41,3 +41,4 @@ Next: Milestone 2 - scaffold src/userplugins/aegiresE2EE (pure browser TS, zero 
   - Default Aegires preset: AES256 (MainActivity.java:48,107).
 - Build/CI & Branching: `gh` authed as cozmicat123 (repo, workflow); GitHub Actions handles pnpm/Vencord builds. `main` = verified working releases/builds; `dev` = active/experimental work.
 - 2026-11-21: Completed Milestone 1 (Vencord APIs, VDE build pipeline, crypto benchmarks, 6/6 Java<->JS interop).
+- FileNames.java:14-35: 10 random bytes (20 lower-hex chars) + "." + lowercase [a-z0-9] ext (<=5 chars) from MIME fallback to filename ext.
