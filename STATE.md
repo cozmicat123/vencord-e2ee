@@ -1,5 +1,5 @@
 # STATE.md: shared memory. The lead reads this first.
-Next: shallow-clone Vendicated/Vencord (@ a846785 or latest) and VendroidEnhanced/plugin into ~/vc-work, verify build toolchain (Termux vs GitHub Actions), check Vencord license Next: clone Aegires (gen3), cozmicat123/aliucord-e2ee (aegires-sync), and cozmicat123/valenced-e2ee into ~/vc-work; inspect structure, crypto primitives, wire format, and licenses. human-written plugin hooks/APIs (MessageEvents, MessageAccessories, FileUpload, Flux), and benchmark Argon2id + AES-192-GCM libraries against Aegires Java vectors.
+Next: Milestone 2 - scaffold src/userplugins/aegiresE2EE (pure browser TS, zero native.ts), port Crypto + ForcedKeys + FileNames verbatim against Aegires Java test vectors in CI/Termux, and wire GitHub Actions to build Vencord + VDE browser.js.
 
 ## Setup
 - Repo: ~/vc-work/e2ee (branch dev) = github.com/cozmicat123/vencord-e2ee (private). Pack helper: ~/vc-work/pack.sh NAME files... -> ~/storage/downloads/pack-NAME.txt
@@ -31,3 +31,13 @@ Next: shallow-clone Vendicated/Vencord (@ a846785 or latest) and VendroidEnhance
 - Phone testing: build Vencord browser.js (+ VendroidEnhanced/plugin), host over HTTPS, point VDE vencordLocation to it. Git user.email = GitHub noreply.
 ## Log
 - 2026-11-21: Verified VDE bundle loading, Discord CSP, Termux toolchain, and full Aegires gen3 E2EE wire/message/file protocol.
+- Vencord pin: Vendicated/Vencord @ a846785 (v1.15.18, GPL-3.0-or-later, pnpm@12.15.0, esbuild@^0.28.2). `pnpm buildWeb` emits dist/browser.js, dist/extension-chrome.zip, dist/extension-firefox.zip, dist/Vencord.user.js from src/userplugins/<camelCase>/index.tsx.
+- VendroidEnhanced/plugin submodules: vendroidEnhancements, vendroidSheets, materialYou (copied to src/plugins/, blacklisted-plugins.txt removed, then `pnpm buildWeb`).
+- Vencord hooks verified: MessageEventsAPI (async onBeforeMessageSend/Edit), ChatButtons, MessageDecorations, MessageAccessories, MessageUpdaterAPI, ContextMenu, Flux; upload hook `async uploadFiles(` (anonymiseFileNames pattern); attachment replace hook `this.renderAttachments(` (hideAttachments pattern).
+- Crypto stack & 2-way Java interop verified (6/6 both ways, msg v2 + 140KB 3-chunk file v3, all 3 presets):
+  - Argon2id: hash-wasm (30KB WASM, MIT) = 211.7ms vs Aegires Java 423ms vs @noble/hashes JS 783.4ms; bit-exact key match. Discord CSP `child-src 'self' blob:` allows inline Blob Workers.
+  - HKDF-SHA256 + AES-128-GCM (96b tag, 15.7ms/10MiB) + AES-256-GCM (128b tag, 17.2ms/10MiB): native WebCrypto.
+  - AES-192-GCM (112b/14B tag, 239.7ms/10MiB): @noble/ciphers (ecb + ctr + ghash), required since Chromium WebCrypto rejects 192-bit keys.
+  - Default Aegires preset: AES256 (MainActivity.java:48,107).
+- Build/CI & Branching: `gh` authed as cozmicat123 (repo, workflow); GitHub Actions handles pnpm/Vencord builds. `main` = verified working releases/builds; `dev` = active/experimental work.
+- 2026-11-21: Completed Milestone 1 (Vencord APIs, VDE build pipeline, crypto benchmarks, 6/6 Java<->JS interop).
