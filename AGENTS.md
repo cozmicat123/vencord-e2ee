@@ -12,17 +12,10 @@ The owner has only a phone with Termux, no PC. The owner can run commands and pa
 - Never ask the owner to edit a file by hand. Write changes as commands (cat > file <<'EOF' ... EOF, or git apply).
 - Never ask for or echo secrets (tokens, keys, passwords). No personal names in plugin metadata or commits.
 
-## Two models, one memory
-- Gemini = LEAD: plans, tells the owner what to run, reads packs, collects facts with quoted lines, reviews diffs. Writes no project code.
-- Claude = WORKER: writes code and tests for one task. Starts every chat with no memory.
-- The only memory is STATE.md (repo ~/vc-work/e2ee, branch dev). Nothing else survives between chats.
-- On "start": the lead reads STATE.md, does what "Next:" says, and continues from there.
-
-## Handing a task to Claude (the lead does this)
-1. A Termux block that builds the pack: ~/vc-work/pack.sh NAME file1 file2 ... (raw numbered files; keep one pack under about 15k tokens).
-2. A block titled PROMPT FOR CLAUDE that the owner pastes into a NEW Claude chat with AGENTS.md attached. Self-contained: the task; the facts from STATE.md with path:line; which pack to attach; the test that must pass; the last line repeats the task.
-3. Claude replies with ONE Termux block that writes or changes the files and runs the test, then "Paste back: the test output", then "DONE: close this chat."
-4. The owner pastes Claude's test output to the lead, who reviews and decides the next step.
+## Single agent, one memory
+- Gemini is the sole worker: researches, plans, writes code/tests, reviews diffs, updates STATE.md.
+- Prefer verbatim/ported clean human-written code; fall back to new code only when needed after thorough research.
+- The only memory is STATE.md (repo ~/vc-work/e2ee, branch dev). On "start": read STATE.md and continue from Next:.
 
 ## Bookkeeping (end every reply that learned or decided something)
 A Termux block that appends to STATE.md, updates the Next: line, commits and pushes:
