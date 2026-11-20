@@ -1,5 +1,5 @@
 # STATE.md: shared memory. The lead reads this first.
-Next: Milestone 2 - scaffold src/userplugins/aegiresE2EE (pure browser TS, zero native.ts), port Crypto + ForcedKeys + FileNames verbatim against Aegires Java test vectors in CI/Termux, and wire GitHub Actions to build Vencord + VDE browser.js.
+Next: Milestone 3 - wire aegiresE2EE settings/key session store (Blob Worker Argon2id + ForcedKeys auto-prepare), outgoing message encryption (MessageEventsAPI + size guard), incoming/reply decryption (+ [sz:W,H] strip), and test browser.js on Vendroid Enhanced over HTTPS.
 
 ## Setup
 - Repo: ~/vc-work/e2ee (branch dev) = github.com/cozmicat123/vencord-e2ee (private). Pack helper: ~/vc-work/pack.sh NAME files... -> ~/storage/downloads/pack-NAME.txt
@@ -42,3 +42,6 @@ Next: Milestone 2 - scaffold src/userplugins/aegiresE2EE (pure browser TS, zero 
 - Build/CI & Branching: `gh` authed as cozmicat123 (repo, workflow); GitHub Actions handles pnpm/Vencord builds. `main` = verified working releases/builds; `dev` = active/experimental work.
 - 2026-11-21: Completed Milestone 1 (Vencord APIs, VDE build pipeline, crypto benchmarks, 6/6 Java<->JS interop).
 - FileNames.java:14-35: 10 random bytes (20 lower-hex chars) + "." + lowercase [a-z0-9] ext (<=5 chars) from MIME fallback to filename ext.
+- 2026-11-21: Completed Milestone 2 - scaffolded src/userplugins/aegiresE2EE/{crypto,gcm192,forcedKeys,fileNames,sizeTag}.ts + index.tsx (hash-wasm@4.13.0 WASM Argon2id, WebCrypto HKDF/AES-128/256-GCM, @noble/ciphers@2.4.0 AES-192-GCM).
+- Verified 2-way Java<->TS interop via tests/aegires-vectors.json + tests/run.mjs (10 Java->TS msgs, 9 Java->TS files, 3 TS->Java msgs, 9 TS->Java files; KDF user/NFKC/forced, sizes, FileNames, SizeTag).
+- CI (.github/workflows/ci.yml, run 44839891679) green: crypto tests + Vencord @ a846785 `pnpm test:ts` + VDE plugin @ 3741bd8 `pnpm buildWeb` (browser.js 734KB, Vencord.user.js 776KB, Chrome/Firefox zips 1.5MB).
