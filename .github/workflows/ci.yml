@@ -160,8 +160,8 @@ jobs:
           - **VendroidEnhanced** (*Developer settings → Vencord location*):
             \`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/builds/browser.js\`
           - **Chromium / Titanium / PC Chrome** (clean Vencord): \`extension-chrome.zip\`
-          - **Firefox / Mobile Firefox** (clean Vencord): \`extension-firefox.zip\`
-          - **Userscript (Violentmonkey / Tampermonkey)** (clean Vencord): \`Vencord.user.js\` or auto-update URL \`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/builds/Vencord.user.js\`
+          - **Firefox / Iceraven / Mobile Firefox** (clean Vencord): \`vencord-e2ee-firefox-signed.xpi\` (signed, on \`v*\` releases) or \`extension-firefox.zip\`
+          - **Userscript (Chromium Violentmonkey / Tampermonkey)** (clean Vencord): \`Vencord.user.js\` or auto-update URL \`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/builds/Vencord.user.js\` *(Note: Firefox + Violentmonkey is not supported due to upstream CSP bug violentmonkey/issues/997 — use the Firefox extension instead)*
 
           ### SHA-256
           \`\`\`
