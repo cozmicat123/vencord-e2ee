@@ -1,0 +1,49 @@
+.vc-aegires-btn {
+    color: var(--interactive-normal);
+    transition: color 0.15s ease;
+}
+
+.vc-aegires-btn-on {
+    color: var(--status-positive, #23a55a);
+}
+
+.vc-aegires-btn-forced {
+    color: var(--brand-500, #5865f2);
+}
+
+.vc-aegires-badge {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+    margin-left: 4px;
+    line-height: 1;
+}
+
+.vc-aegires-badge-ok {
+    color: var(--status-positive, #23a55a);
+}
+
+.vc-aegires-badge-locked {
+    color: var(--text-muted, #949ba4);
+}
+
+.vc-aegires-modal-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.vc-aegires-diag {
+    margin: 4px 0 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--background-secondary-alt, rgba(0, 0, 0, 0.25));
+    color: var(--text-normal, #dbdee1);
+    font-family: var(--font-code, monospace);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: text;
+}

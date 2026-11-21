@@ -2,7 +2,7 @@
 
 Goal: a Vencord userplugin whose encrypted messages are compatible with Aegires (branch gen3).
 Siblings for reference: cozmicat123/aliucord-e2ee (branch aegires-sync), cozmicat123/valenced-e2ee.
-Test target: Vendroid Enhanced on the owner's phone. Desktop: community testers.
+Test target: Vendroid Enhanced (YAAP Vanadium WebView), Titanium/Cromite (Chrome MV3 ext), Firefox/Iceraven/Fennec (Firefox ext + Violentmonkey), and Desktop browsers.
 
 ## The owner is a courier
 The owner has only a phone with Termux, no PC. The owner can run commands and paste output. The owner does NOT plan, read code, edit files, or choose between options. So you drive.

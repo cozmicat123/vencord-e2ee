@@ -1,0 +1,1 @@
+{"name":"vencord-aegires-e2ee","private":true,"type":"module","dependencies":{"@noble/ciphers":"2.4.0","hash-wasm":"4.13.0"}}
