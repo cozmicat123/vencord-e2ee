@@ -1,5 +1,5 @@
 # STATE.md: shared memory. Read first on "start".
-Next: Milestone 4 - encrypted file/media attachments (audit Aegires gen3 media/sizeTag/fileNames + Vencord web upload/attachment modules first; v3 64KiB chunked wire format in persistent Worker with transferable ArrayBuffers, upload hook `async uploadFiles(`, `[sz:W,H]` tag on image upload, attachment render/decrypt hook `this.renderAttachments(` with blob URL lifecycle cleanup).
+Next: Merge `dev` -> `main` and tag `v1.0.0` (triggers signed Firefox `.xpi` + stable release).
 
 ## Setup & Pins
 - Repo: ~/vc-work/e2ee (branch `dev`, public) = github.com/cozmicat123/vencord-e2ee.
@@ -34,3 +34,5 @@ Next: Milestone 4 - encrypted file/media attachments (audit Aegires gen3 media/s
 - M1-M2: Crypto core + 2-way Java<->TS vector suite (`tests/run.mjs`: 10 Java->TS msgs, 9 Java->TS files, 3 TS msgs, 9 TS files) — DONE.
 - M3: Full Vencord plugin (chat bar lock, modal, badge, Flux decrypt, reply previews, forced keys, off-thread KDF, on-demand JIT/WASM/HWA diagnostics) verified live against Aegires Android on all presets + optimized + dual CI builds (`nightly` + `builds`) — DONE.
 - Live cross-platform bench verified (Titanium Chrome/157, VDE Vanadium Chrome/155 wv, Iceraven Gecko/160 + VM, Firefox Android Gecko/163 native ext): full JIT, Blob Worker WASM Argon2id (215-402ms), hardware WebCrypto AES-128/256 (143-1111 MiB/s), pure-JS AES-192 (9.4-31.9 MiB/s).
+
+- M4: Encrypted file/media attachments (v3 64KiB chunked wire in Worker with transferable ArrayBuffers, pre-upload `CloudUpload.prototype.upload` hook in `d8aed97` to prevent CDN plaintext leaks, `[sz:W,H]` dimension preservation in `114fbcf`, inline decrypt + blob URL cleanup, AMO unlisted Firefox `.xpi` signing on `v*` tags) — DONE.

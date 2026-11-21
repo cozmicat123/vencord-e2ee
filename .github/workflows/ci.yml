@@ -23,6 +23,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with: { version: '12.15.0' }
       - uses: actions/setup-node@v4
@@ -85,6 +87,37 @@ jobs:
           cp /tmp/out-clean/* /tmp/out-vde/* /tmp/release-dist/
           (cd /tmp/release-dist && sha256sum extension-chrome.zip extension-firefox.zip Vencord.user.js vendroid-browser.js vendroid-browser.css > SHA256SUMS.txt)
           ls -lh /tmp/release-dist/
+      - name: Sign Firefox extension via AMO (unlisted, v* tags only)
+        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "AMO secrets not set; skipping Firefox signing."
+            exit 0
+          fi
+          VER="${GITHUB_REF_NAME#v}"
+          rm -rf /tmp/ff-src /tmp/ff-signed && mkdir -p /tmp/ff-src /tmp/ff-signed
+          unzip -q /tmp/release-dist/extension-firefox.zip -d /tmp/ff-src
+          VER="$VER" node -e '
+            const fs = require("fs");
+            const p = "/tmp/ff-src/manifest.json";
+            const m = JSON.parse(fs.readFileSync(p, "utf8"));
+            m.version = process.env.VER;
+            m.browser_specific_settings = m.browser_specific_settings || {};
+            m.browser_specific_settings.gecko = m.browser_specific_settings.gecko || {};
+            m.browser_specific_settings.gecko.id = "vencord-e2ee@cozmicat123.github.io";
+            fs.writeFileSync(p, JSON.stringify(m, null, 2));
+          '
+          npx --yes web-ext sign --channel=unlisted \
+            --api-key="$AMO_JWT_ISSUER" \
+            --api-secret="$AMO_JWT_SECRET" \
+            --source-dir=/tmp/ff-src \
+            --artifacts-dir=/tmp/ff-signed
+          XPI=$(ls /tmp/ff-signed/*.xpi | head -n 1)
+          cp "$XPI" /tmp/release-dist/vencord-e2ee-firefox-signed.xpi
+          (cd /tmp/release-dist && sha256sum vencord-e2ee-firefox-signed.xpi >> SHA256SUMS.txt)
       - name: Publish rolling URLs to builds branch
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         env:
@@ -117,6 +150,9 @@ jobs:
             "$DIST/vendroid-browser.js.LEGAL.txt"
             "$DIST/SHA256SUMS.txt"
           )
+          if [ -f "$DIST/vencord-e2ee-firefox-signed.xpi" ]; then
+            ASSETS+=("$DIST/vencord-e2ee-firefox-signed.xpi")
+          fi
           cat <<NOTES > /tmp/release-notes.md
           Built from \`${GITHUB_REF_NAME}@${GITHUB_SHA::7}\` (Vencord \`${VENCORD_SHA::7}\`; VendroidEnhanced plugins \`${VDE_PLUGIN_SHA::7}\` applied only to \`vendroid-browser.*\`).
 
@@ -124,8 +160,8 @@ jobs:
           - **VendroidEnhanced** (*Developer settings → Vencord location*):
             \`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/builds/browser.js\`
           - **Chromium / Titanium / PC Chrome** (clean Vencord): \`extension-chrome.zip\`
-          - **Firefox / Mobile Firefox** (clean Vencord): \`extension-firefox.zip\`
-          - **Userscript (Violentmonkey / Tampermonkey)** (clean Vencord): \`Vencord.user.js\` or auto-update URL \`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/builds/Vencord.user.js\`
+          - **Firefox / Iceraven / Mobile Firefox** (clean Vencord): \`vencord-e2ee-firefox-signed.xpi\` (signed, on \`v*\` releases) or \`extension-firefox.zip\`
+          - **Userscript (Chromium Violentmonkey / Tampermonkey)** (clean Vencord): \`Vencord.user.js\` or auto-update URL \`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/builds/Vencord.user.js\` *(Note: Firefox + Violentmonkey is not supported due to upstream CSP bug violentmonkey/issues/997 — use the Firefox extension instead)*
 
           ### SHA-256
           \`\`\`
