@@ -4,7 +4,7 @@ import { DraftType, MessageCache, MessageStore, ReferencedMessageStore, Selected
 
 import { decrypt, encrypt, looksEncrypted, maxPlaintextBytes, PREFIX, type Preset, presetFromIndex, utf8Length } from "./crypto";
 import { isForced, keyFor, prepare } from "./forcedKeys";
-import { clearMediaCache, probeImageDimensions } from "./media";
+import { clearMediaCache, getUploadDimensions, probeImageDimensions } from "./media";
 import { extractSizeTag, type ParsedSizeTag } from "./sizeTag";
 import { getEffectiveKey, getSelectedPreset, getUserKey, shouldEncryptChannel } from "./state";
 
@@ -357,12 +357,18 @@ async function encryptOutgoing(channelId: string, messageObj: MessageObject): Pr
 export async function handleBeforeMessageSend(channelId: string, messageObj: MessageObject) {
     if (shouldEncryptChannel(channelId) && !looksEncrypted(messageObj.content)) {
         const uploads = UploadAttachmentStore?.getUploads?.(channelId, DraftType.ChannelMessage) ?? [];
-        const firstImg = uploads.find(u => u?.isImage && u.item?.file);
-        if (firstImg) {
-            const dims = await probeImageDimensions(firstImg.item.file);
-            if (dims) {
-                messageObj.content = `[sz:${dims.width},${dims.height}]${messageObj.content ?? ""}`;
+        let dims: { width: number; height: number; } | null = null;
+        for (const u of uploads) {
+            if (!u) continue;
+            dims = getUploadDimensions(u);
+            if (dims) break;
+            if (u.isImage && u.item?.file) {
+                dims = await probeImageDimensions(u.item.file);
+                if (dims) break;
             }
+        }
+        if (dims) {
+            messageObj.content = `[sz:${dims.width},${dims.height}]${messageObj.content ?? ""}`;
         }
     }
     return encryptOutgoing(channelId, messageObj);

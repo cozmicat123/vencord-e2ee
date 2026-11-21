@@ -211,6 +211,11 @@ export async function probeImageDimensions(file: File): Promise<{ width: number;
 }
 
 const pendingEncryptions = new WeakMap<CloudUpload, Promise<void>>();
+const uploadDimensions = new WeakMap<CloudUpload, { width: number; height: number; }>();
+
+export function getUploadDimensions(upload: CloudUpload): { width: number; height: number; } | null {
+    return uploadDimensions.get(upload) ?? null;
+}
 
 export async function encryptSingleUpload(upload: CloudUpload): Promise<void> {
     if (!upload || (upload as any)[ENCRYPTED_UPLOAD_MARK] || isEncryptedFilename(upload.filename)) return;
@@ -251,6 +256,11 @@ export async function encryptSingleUpload(upload: CloudUpload): Promise<void> {
             upload.uploadedFilename = "";
             upload.responseUrl = "";
             upload.loaded = 0;
+        }
+
+        if (upload.isImage || (file.type && file.type.startsWith("image/"))) {
+            const dims = await probeImageDimensions(file);
+            if (dims) uploadDimensions.set(upload, dims);
         }
 
         const preset = getSelectedPreset();
