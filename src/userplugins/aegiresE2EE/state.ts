@@ -90,7 +90,7 @@ export async function deriveAndSetUserKey(password: string): Promise<boolean> {
     const gen = ++derivationGen;
     deriving = true;
     notify();
-    showToast({ text: "Deriving key, this takes a few seconds..." });
+    showToast({ text: "Deriving key..." });
 
     const key = await deriveKey(password);
     if (gen !== derivationGen) return false;

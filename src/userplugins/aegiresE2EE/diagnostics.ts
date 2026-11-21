@@ -3,12 +3,23 @@ import { getLastKdfMode } from "./kdfWorker";
 
 const FILE_BENCH_BYTES = 1024 * 1024; // 1 MiB
 
-function runJitProbe(): number {
-    const t0 = performance.now();
+function jitLoop(iters: number): number {
     let x = 0;
-    for (let i = 0; i < 20_000_000; i++) x = (x + i) | 0;
-    if (x === -1) console.debug(x);
-    return performance.now() - t0;
+    for (let i = 0; i < iters; i++) x = (x + i) | 0;
+    return x;
+}
+
+function runJitProbe(): number {
+    let sink = jitLoop(2_000_000);
+    let best = Infinity;
+    for (let run = 0; run < 3; run++) {
+        const t0 = performance.now();
+        sink ^= jitLoop(20_000_000);
+        const dt = performance.now() - t0;
+        if (dt < best) best = dt;
+    }
+    if (sink === -1) console.debug(sink);
+    return best;
 }
 
 export async function runDiagnostics(): Promise<string> {
@@ -20,8 +31,8 @@ export async function runDiagnostics(): Promise<string> {
     lines.push(`Cores: ${cores} | WASM: ${typeof WebAssembly !== "undefined"} | Worker: ${typeof Worker !== "undefined"} | Subtle: ${Boolean(globalThis.crypto?.subtle)}`);
 
     const jitMs = runJitProbe();
-    const jitTag = jitMs < 40 ? "JIT active" : "slow / JIT-less";
-    lines.push(`JS JIT probe (20M loop): ${jitMs.toFixed(1)} ms (${jitTag})`);
+    const jitTag = jitMs < 60 ? "JIT active" : jitMs < 220 ? "throttled / low-clock" : "likely JIT-less";
+    lines.push(`JS JIT probe (20M best/3): ${jitMs.toFixed(1)} ms (${jitTag})`);
 
     const tKdf = performance.now();
     const key = await deriveKey("aegires-bench-passphrase");
@@ -32,6 +43,9 @@ export async function runDiagnostics(): Promise<string> {
         return lines.join("\n");
     }
     lines.push(`Argon2id KDF (64MiB t=3 p=1): ${kdfMs.toFixed(1)} ms (mode=${mode})`);
+
+    // Prime WebCrypto so AES-128-GCM does not absorb cold-start latency
+    await encrypt("warmup", key, PRESET_LIST[0], "123456", "789012");
 
     const sample = new Uint8Array(FILE_BENCH_BYTES);
     for (let i = 0; i < sample.length; i++) sample[i] = (i * 31 + 17) & 0xff;

@@ -60,26 +60,41 @@ jobs:
           ) &
           PID2=$!
           wait "$PID1" "$PID2"
-      - name: Install deps, typecheck plugin & build VDE web bundle
+      - name: Install deps, typecheck & build clean Vencord + VDE bundles
         working-directory: /tmp/Vencord
         run: |
-          mkdir -p src/userplugins
+          mkdir -p src/userplugins /tmp/out-clean /tmp/out-vde /tmp/release-dist
           cp -r "$GITHUB_WORKSPACE/src/userplugins/aegiresE2EE" src/userplugins/
           pnpm install --no-frozen-lockfile --prefer-offline
           pnpm add -w "hash-wasm@${HASH_WASM_VER}" "@noble/ciphers@${NOBLE_CIPHERS_VER}"
           pnpm test:ts
+
+          # 1. Clean standard Vencord (Chrome/Titanium, Firefox, Userscript)
+          pnpm buildWeb
+          cp dist/extension-chrome.zip dist/extension-firefox.zip dist/Vencord.user.js /tmp/out-clean/
+
+          # 2. VendroidEnhanced bundle (VDE plugins + VDE blacklist)
           cp -r /tmp/vde-plugin/plugins/* src/plugins/
           node -e 'const fs=require("fs"),p=require("path");for(const l of fs.readFileSync("/tmp/vde-plugin/blacklisted-plugins.txt","utf8").split("\n")){const n=l.split("#")[0].trim();if(n)fs.rmSync(p.join("src/plugins",n),{recursive:true,force:true});}'
+          rm -rf dist
           pnpm buildWeb
-          (cd dist && sha256sum browser.js browser.css Vencord.user.js extension-chrome.zip extension-firefox.zip > SHA256SUMS.txt)
-          ls -lh dist/browser.js dist/browser.css dist/extension-chrome.zip dist/extension-firefox.zip dist/Vencord.user.js dist/SHA256SUMS.txt
-      - name: Publish VDE bundle to builds branch
+          cp dist/browser.js /tmp/out-vde/vendroid-browser.js
+          cp dist/browser.css /tmp/out-vde/vendroid-browser.css
+          cp dist/browser.js.LEGAL.txt /tmp/out-vde/vendroid-browser.js.LEGAL.txt
+
+          cp /tmp/out-clean/* /tmp/out-vde/* /tmp/release-dist/
+          (cd /tmp/release-dist && sha256sum extension-chrome.zip extension-firefox.zip Vencord.user.js vendroid-browser.js vendroid-browser.css > SHA256SUMS.txt)
+          ls -lh /tmp/release-dist/
+      - name: Publish rolling URLs to builds branch
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           rm -rf /tmp/builds-pub && mkdir -p /tmp/builds-pub
-          cp /tmp/Vencord/dist/browser.js /tmp/Vencord/dist/browser.css /tmp/Vencord/dist/browser.js.LEGAL.txt /tmp/Vencord/dist/Vencord.user.js /tmp/builds-pub/
+          cp /tmp/out-vde/vendroid-browser.js /tmp/builds-pub/browser.js
+          cp /tmp/out-vde/vendroid-browser.css /tmp/builds-pub/browser.css
+          cp /tmp/out-vde/vendroid-browser.js.LEGAL.txt /tmp/builds-pub/browser.js.LEGAL.txt
+          cp /tmp/out-clean/Vencord.user.js /tmp/builds-pub/Vencord.user.js
           cd /tmp/builds-pub
           git init -b builds
           git config user.name "github-actions[bot]"
@@ -92,25 +107,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DIST=/tmp/Vencord/dist
+          DIST=/tmp/release-dist
           ASSETS=(
-            "$DIST/browser.js"
-            "$DIST/browser.css"
-            "$DIST/browser.js.LEGAL.txt"
-            "$DIST/Vencord.user.js"
             "$DIST/extension-chrome.zip"
             "$DIST/extension-firefox.zip"
+            "$DIST/Vencord.user.js"
+            "$DIST/vendroid-browser.js"
+            "$DIST/vendroid-browser.css"
+            "$DIST/vendroid-browser.js.LEGAL.txt"
             "$DIST/SHA256SUMS.txt"
           )
           cat <<NOTES > /tmp/release-notes.md
-          Built from \`${GITHUB_REF_NAME}@${GITHUB_SHA::7}\` (Vencord \`${VENCORD_SHA::7}\` + VendroidEnhanced plugins \`${VDE_PLUGIN_SHA::7}\`).
+          Built from \`${GITHUB_REF_NAME}@${GITHUB_SHA::7}\` (Vencord \`${VENCORD_SHA::7}\`; VendroidEnhanced plugins \`${VDE_PLUGIN_SHA::7}\` applied only to \`vendroid-browser.*\`).
 
           ### Quick Install
           - **VendroidEnhanced** (*Developer settings → Vencord location*):
             \`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/builds/browser.js\`
-          - **Chromium / Mobile Chromium**: \`extension-chrome.zip\`
-          - **Firefox**: \`extension-firefox.zip\`
-          - **Userscript (Violentmonkey / Tampermonkey)**: \`Vencord.user.js\`
+          - **Chromium / Titanium / PC Chrome** (clean Vencord): \`extension-chrome.zip\`
+          - **Firefox / Mobile Firefox** (clean Vencord): \`extension-firefox.zip\`
+          - **Userscript (Violentmonkey / Tampermonkey)** (clean Vencord): \`Vencord.user.js\` or auto-update URL \`https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/builds/Vencord.user.js\`
 
           ### SHA-256
           \`\`\`
@@ -131,6 +146,9 @@ jobs:
             git push -f origin refs/tags/nightly
             TITLE="Nightly (${GITHUB_REF_NAME}@${GITHUB_SHA::7})"
             if gh release view nightly >/dev/null 2>&1; then
+              for old in browser.js browser.css browser.js.LEGAL.txt; do
+                gh release delete-asset nightly "$old" -y 2>/dev/null || true
+              done
               gh release upload nightly "${ASSETS[@]}" --clobber
               gh release edit nightly --title "$TITLE" --notes-file /tmp/release-notes.md --prerelease
             else

@@ -28,3 +28,5 @@ Next: Milestone 4 - encrypted file/media attachments (v3 64KiB chunked wire form
 ## Milestones
 - M1-M2: Crypto core + 2-way Java<->TS vector suite (`tests/run.mjs`: 10 Java->TS msgs, 9 Java->TS files, 3 TS msgs, 9 TS files) — DONE.
 - M3: Full Vencord plugin (chat bar lock, modal, badge, Flux decrypt, reply previews, forced keys, off-thread KDF) verified live against Aegires Android on all presets + optimized (batched commits, single WASM, managedStyle, CI `builds` auto-publish) — DONE.
+- Dual CI build invariant: clean upstream Vencord (`extension-chrome.zip`, `extension-firefox.zip`, `Vencord.user.js`) is built BEFORE applying VDE plugins/blacklist (`vendroid-browser.js` / `builds/browser.js`), so non-VDE browsers never get the Android-only `VendroidEnhanced Settings` tab.
+- Live cross-platform bench verified (Titanium Chrome/157, VDE Vanadium Chrome/155 wv, Iceraven Gecko/160 + VM, Firefox Android Gecko/163 native ext): full JIT, Blob Worker WASM Argon2id (215-402ms), hardware WebCrypto AES-128/256 (143-1111 MiB/s), pure-JS AES-192 (9.4-31.9 MiB/s).
