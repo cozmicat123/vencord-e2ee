@@ -49,11 +49,22 @@ export function looksEncrypted(s: string | null | undefined): s is string {
     return typeof s === "string" && s.startsWith(PREFIX);
 }
 
+export type RawKdfProvider = (password: Uint8Array, salt: Uint8Array) => Promise<Uint8Array | null>;
+let rawKdfProvider: RawKdfProvider | null = null;
+
+export function setRawKdfProvider(fn: RawKdfProvider | null): void {
+    rawKdfProvider = fn;
+}
+
 export async function deriveKeyRaw(password: string | null | undefined, context?: string): Promise<Uint8Array | null> {
     if (!password) return null;
     const pw = enc.encode(password.normalize("NFKC"));
     const salt = context !== undefined ? enc.encode("dcenc2|ctx|" + context) : USER_KEY_SALT;
     try {
+        if (rawKdfProvider) {
+            const out = await rawKdfProvider(pw.slice(), salt.slice());
+            if (out) return out;
+        }
         return await argon2id({
             password: pw,
             salt,
