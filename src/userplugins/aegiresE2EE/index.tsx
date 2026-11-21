@@ -1,7 +1,7 @@
 import definePlugin from "@utils/types";
 import { SelectedChannelStore } from "@webpack/common";
 
-import { setRawKdfProvider } from "./crypto";
+import { DEFAULT_PRESET, presetFromIndex, setRawKdfProvider } from "./crypto";
 import {
     fluxHandlers,
     handleBeforeMessageEdit,
@@ -14,7 +14,7 @@ import {
 import { clearForcedKeys } from "./forcedKeys";
 import { deriveKeyRawInWorker } from "./kdfWorker";
 import { settings } from "./settings";
-import { clearUserKey, setOnKeyChanged } from "./state";
+import { clearUserKey, setOnKeyChanged, setPresetProvider } from "./state";
 import { E2EEChatBarButton, EncryptedBadge, LockIcon } from "./ui";
 
 export default definePlugin({
@@ -50,6 +50,7 @@ export default definePlugin({
     onBeforeMessageEdit: handleBeforeMessageEdit,
 
     start() {
+        setPresetProvider(() => presetFromIndex(Number(settings.store.preset)) ?? DEFAULT_PRESET);
         setRawKdfProvider(deriveKeyRawInWorker);
         setOnKeyChanged(handleKeyChanged);
         queueMicrotask(() => scanChannel(SelectedChannelStore.getChannelId()));
@@ -58,6 +59,7 @@ export default definePlugin({
     stop() {
         setOnKeyChanged(null);
         setRawKdfProvider(null);
+        setPresetProvider(null);
         clearUserKey(true);
         clearForcedKeys();
         resetEngine();

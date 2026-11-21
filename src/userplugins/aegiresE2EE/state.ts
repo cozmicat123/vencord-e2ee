@@ -1,8 +1,7 @@
 import { showToast, useEffect, useState } from "@webpack/common";
 
-import { DEFAULT_PRESET, deriveKey, type MasterKey, type Preset, presetFromIndex } from "./crypto";
+import { DEFAULT_PRESET, deriveKey, type MasterKey, type Preset } from "./crypto";
 import { isForced, keyFor } from "./forcedKeys";
-import { settings } from "./settings";
 
 export interface E2EESnapshot {
     hasKey: boolean;
@@ -17,6 +16,7 @@ let derivationGen = 0;
 
 const listeners = new Set<() => void>();
 let onKeyChangedCallback: ((reason: "set" | "clear") => void) | null = null;
+let presetProvider: (() => Preset) | null = null;
 
 function notify() {
     for (const fn of listeners) fn();
@@ -24,6 +24,10 @@ function notify() {
 
 export function setOnKeyChanged(cb: ((reason: "set" | "clear") => void) | null): void {
     onKeyChangedCallback = cb;
+}
+
+export function setPresetProvider(fn: (() => Preset) | null): void {
+    presetProvider = fn;
 }
 
 export function getSnapshot(): E2EESnapshot {
@@ -50,7 +54,7 @@ export function getUserKey(): MasterKey | null {
 }
 
 export function getSelectedPreset(): Preset {
-    return presetFromIndex(Number(settings.store.preset)) ?? DEFAULT_PRESET;
+    return presetProvider?.() ?? DEFAULT_PRESET;
 }
 
 export function getEffectiveKey(channelId: string | null | undefined): MasterKey | null {

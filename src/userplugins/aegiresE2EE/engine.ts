@@ -20,12 +20,37 @@ export interface WireRecord {
     dims?: { width: number; height: number; };
 }
 
+const MAX_WIRE_RECORDS = 2000;
+
 const wireRecords = new Map<string, WireRecord>();
 const inflightDecrypts = new Map<string, number>();
 const messageListeners = new Map<string, Set<() => void>>();
 
 let decryptEpoch = 0;
 let replyStoreRef: { set?: (channelId: string, messageId: string, entry: any) => void; } | null = null;
+
+function setWireRecord(messageId: string, rec: WireRecord): void {
+    if (wireRecords.has(messageId)) {
+        wireRecords.delete(messageId);
+    }
+    wireRecords.set(messageId, rec);
+
+    if (wireRecords.size > MAX_WIRE_RECORDS) {
+        for (const id of wireRecords.keys()) {
+            if (wireRecords.size <= MAX_WIRE_RECORDS) break;
+            if (messageListeners.has(id)) continue;
+            wireRecords.delete(id);
+            inflightDecrypts.delete(id);
+        }
+    }
+}
+
+function deleteWireRecord(messageId: string): void {
+    inflightDecrypts.delete(messageId);
+    if (wireRecords.delete(messageId)) {
+        notifyMessage(messageId);
+    }
+}
 
 function decodeHeaderPreset(wire: string): Preset | null {
     try {
@@ -58,7 +83,10 @@ export function useWireRecord(messageId: string): WireRecord | undefined {
             set = new Set();
             messageListeners.set(messageId, set);
         }
-        const cb = () => setRec(wireRecords.get(messageId) ? { ...wireRecords.get(messageId)! } : undefined);
+        const cb = () => {
+            const current = wireRecords.get(messageId);
+            setRec(current ? { ...current } : undefined);
+        };
         set.add(cb);
         return () => {
             set?.delete(cb);
@@ -76,11 +104,11 @@ function updateReferencedMessageContent(channelId: string, messageId: string, co
     if (!replyStoreRef?.set || !ReferencedMessageStore) return;
     try {
         const entry = ReferencedMessageStore.getMessageByReference({ channel_id: channelId, message_id: messageId });
-        if (entry && entry.state === 0 && entry.message && entry.message.content !== content) {
+        if (entry?.message && entry.message.content !== content) {
             const nextMsg = typeof (entry.message as any).merge === "function"
                 ? (entry.message as any).merge({ content })
                 : entry.message;
-            replyStoreRef.set(channelId, messageId, { state: 0, message: nextMsg });
+            replyStoreRef.set(channelId, messageId, { ...entry, message: nextMsg });
             ReferencedMessageStore.emitChange?.();
         }
     } catch {
@@ -130,17 +158,19 @@ async function decryptRecord(messageId: string, rec: WireRecord): Promise<void> 
 
 export function ingestRawMessage(msg: Partial<Message> & { referenced_message?: Partial<Message> | null; }, fallbackChannelId?: string): void {
     if (!msg?.id) return;
-    const channelId = msg.channel_id ?? fallbackChannelId;
-    const senderId = msg.author?.id;
+    const existing = wireRecords.get(msg.id);
+    const channelId = msg.channel_id ?? fallbackChannelId ?? existing?.channelId;
 
     if (msg.referenced_message?.id) {
         ingestRawMessage(msg.referenced_message, msg.referenced_message.channel_id ?? channelId);
     }
 
-    if (!channelId || !senderId || typeof msg.content !== "string") return;
+    if (!channelId || typeof msg.content !== "string") return;
+
+    const senderId = msg.author?.id ?? existing?.senderId ?? MessageStore.getMessage(channelId, msg.id)?.author?.id;
+    if (!senderId) return;
 
     if (looksEncrypted(msg.content)) {
-        const existing = wireRecords.get(msg.id);
         if (existing && existing.wireContent === msg.content && existing.status === "decrypted" && existing.plaintext !== undefined) {
             queueMicrotask(() => {
                 updateMessage(channelId, msg.id!, { content: existing.plaintext! });
@@ -155,15 +185,11 @@ export function ingestRawMessage(msg: Partial<Message> & { referenced_message?: 
             status: "pending",
             preset: decodeHeaderPreset(msg.content)
         };
-        wireRecords.set(msg.id, rec);
+        setWireRecord(msg.id, rec);
         notifyMessage(msg.id);
         void decryptRecord(msg.id, rec);
-    } else {
-        const existing = wireRecords.get(msg.id);
-        if (existing && existing.plaintext !== msg.content) {
-            wireRecords.delete(msg.id);
-            notifyMessage(msg.id);
-        }
+    } else if (existing && existing.plaintext !== msg.content) {
+        deleteWireRecord(msg.id);
     }
 }
 
@@ -192,7 +218,7 @@ export function scanChannel(channelId: string | null | undefined): void {
 
         if (m.messageReference?.message_id && ReferencedMessageStore) {
             const refEntry = ReferencedMessageStore.getMessageByReference(m.messageReference);
-            if (refEntry?.state === 0 && refEntry.message) {
+            if (refEntry?.message) {
                 ingestRawMessage(refEntry.message, m.messageReference.channel_id ?? channelId);
             }
         }
@@ -302,6 +328,13 @@ export const fluxHandlers = {
         if (typeof ev.message.content === "string") {
             ingestRawMessage(ev.message, ev.message.channel_id);
         }
+    },
+    MESSAGE_DELETE(ev: { id?: string; }) {
+        if (ev.id) deleteWireRecord(ev.id);
+    },
+    MESSAGE_DELETE_BULK(ev: { ids?: string[]; }) {
+        if (!Array.isArray(ev.ids)) return;
+        for (const id of ev.ids) deleteWireRecord(id);
     },
     CHANNEL_SELECT(ev: { channelId?: string | null; }) {
         if (ev.channelId) {
