@@ -210,37 +210,50 @@ export async function probeImageDimensions(file: File): Promise<{ width: number;
     }
 }
 
-export async function encryptUploads(uploads: CloudUpload[]): Promise<void> {
-    if (!Array.isArray(uploads) || uploads.length === 0) return;
-    const channelId = uploads[0]?.channelId;
+const pendingEncryptions = new WeakMap<CloudUpload, Promise<void>>();
+
+export async function encryptSingleUpload(upload: CloudUpload): Promise<void> {
+    if (!upload || (upload as any)[ENCRYPTED_UPLOAD_MARK] || isEncryptedFilename(upload.filename)) return;
+    const inflight = pendingEncryptions.get(upload);
+    if (inflight) return inflight;
+
+    const channelId = upload.channelId;
     if (!channelId || !shouldEncryptChannel(channelId)) return;
 
-    const senderId = UserStore.getCurrentUser()?.id;
-    if (!senderId) {
-        showToast({ text: "Could not resolve user ID — upload cancelled", variant: "critical" });
-        throw new Error("AegiresE2EE: missing senderId");
-    }
+    const task = (async () => {
+        const senderId = UserStore.getCurrentUser()?.id;
+        if (!senderId) {
+            showToast({ text: "Could not resolve user ID — upload cancelled", variant: "critical" });
+            throw new Error("AegiresE2EE: missing senderId");
+        }
 
-    let key = isForced(channelId) ? keyFor(channelId) : getUserKey();
-    if (!key && isForced(channelId)) {
-        showToast({ text: "Deriving forced channel key..." });
-        key = await prepare(channelId);
-    }
-    if (!key) {
-        showToast({ text: "E2EE key unavailable — upload cancelled", variant: "critical" });
-        throw new Error("AegiresE2EE: missing key");
-    }
+        let key = isForced(channelId) ? keyFor(channelId) : getUserKey();
+        if (!key && isForced(channelId)) {
+            showToast({ text: "Deriving forced channel key..." });
+            key = await prepare(channelId);
+        }
+        if (!key) {
+            showToast({ text: "E2EE key unavailable — upload cancelled", variant: "critical" });
+            throw new Error("AegiresE2EE: missing key");
+        }
 
-    const preset = getSelectedPreset();
-
-    for (const upload of uploads) {
-        if (!upload || (upload as any)[ENCRYPTED_UPLOAD_MARK] || isEncryptedFilename(upload.filename)) continue;
         const file = upload.item?.file;
         if (!file) {
             showToast({ text: "Cannot encrypt non-file upload — cancelled", variant: "critical" });
             throw new Error("AegiresE2EE: missing upload file");
         }
 
+        // If Discord already pre-uploaded plaintext (e.g. lock toggled ON after picking file), wipe it first
+        if (upload.status && upload.status !== "NOT_STARTED") {
+            try { upload.cancel(); } catch {}
+            try { await upload.delete(); } catch {}
+            upload.status = "NOT_STARTED";
+            upload.uploadedFilename = "";
+            upload.responseUrl = "";
+            upload.loaded = 0;
+        }
+
+        const preset = getSelectedPreset();
         const plain = new Uint8Array(await file.arrayBuffer());
         const encrypted = await encryptFileBytes(plain, key, preset, channelId, senderId);
         if (!encrypted) {
@@ -261,5 +274,19 @@ export async function encryptUploads(uploads: CloudUpload[]): Promise<void> {
         upload.isImage = false;
         upload.isVideo = false;
         (upload as any)[ENCRYPTED_UPLOAD_MARK] = true;
+    })();
+
+    pendingEncryptions.set(upload, task);
+    try {
+        await task;
+    } finally {
+        pendingEncryptions.delete(upload);
+    }
+}
+
+export async function encryptUploads(uploads: CloudUpload[]): Promise<void> {
+    if (!Array.isArray(uploads) || uploads.length === 0) return;
+    for (const upload of uploads) {
+        await encryptSingleUpload(upload);
     }
 }
