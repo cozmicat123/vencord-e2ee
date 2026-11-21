@@ -19,7 +19,7 @@ import {
 import { useE2EEState } from "./state";
 import { openE2EEModal } from "./ui";
 
-const h = React.createElement;
+const h = ((...args: any[]) => (React.createElement as any)(...args)) as typeof React.createElement;
 
 function formatBytes(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes < 0) return "";
