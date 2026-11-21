@@ -37,6 +37,9 @@ self.onmessage = async (ev) => {
 };
 `;
 
+export type KdfMode = "none" | "worker" | "fallback";
+let lastKdfMode: KdfMode = "none";
+export function getLastKdfMode(): KdfMode { return lastKdfMode; }
 let workerBlocked = false;
 let fallbackArgon2id: Argon2Fn | null = null;
 
@@ -96,10 +99,11 @@ async function runInWorker(password: Uint8Array, salt: Uint8Array, params: Argon
 export async function deriveKeyRawInWorker(password: Uint8Array, salt: Uint8Array, params: ArgonParams): Promise<Uint8Array | null> {
     try {
         const workerOut = await runInWorker(password, salt, params);
-        if (workerOut) return workerOut;
+        if (workerOut) { lastKdfMode = "worker"; return workerOut; }
 
         const fn = getFallbackArgon2id();
         if (!fn) return null;
+        lastKdfMode = "fallback";
         return await fn({
             password,
             salt,
