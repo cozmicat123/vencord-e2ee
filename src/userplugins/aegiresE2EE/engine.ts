@@ -1,7 +1,6 @@
 import type { MessageObject } from "@api/MessageEvents";
-import { updateMessage } from "@api/MessageUpdater";
 import type { Message } from "@vencord/discord-types";
-import { MessageStore, ReferencedMessageStore, SelectedChannelStore, showToast, useEffect, useState, UserStore } from "@webpack/common";
+import { MessageCache, MessageStore, ReferencedMessageStore, SelectedChannelStore, showToast, useEffect, useState, UserStore } from "@webpack/common";
 
 import { decrypt, encrypt, looksEncrypted, maxPlaintextBytes, PREFIX, type Preset, presetFromIndex, utf8Length } from "./crypto";
 import { isForced, keyFor, prepare } from "./forcedKeys";
@@ -11,23 +10,95 @@ import { getEffectiveKey, getSelectedPreset, getUserKey, shouldEncryptChannel } 
 export type DecryptStatus = "pending" | "decrypted" | "failed";
 
 export interface WireRecord {
-    channelId: string;
-    senderId: string;
-    wireContent: string;
-    plaintext?: string;
-    status: DecryptStatus;
-    preset: Preset | null;
-    dims?: { width: number; height: number; };
+    readonly channelId: string;
+    readonly senderId: string;
+    readonly wireContent: string;
+    readonly plaintext?: string;
+    readonly status: DecryptStatus;
+    readonly preset: Preset | null;
+    readonly dims?: { readonly width: number; readonly height: number; };
 }
 
 const MAX_WIRE_RECORDS = 2000;
+const BATCH_FLUSH_MS = 12;
 
 const wireRecords = new Map<string, WireRecord>();
 const inflightDecrypts = new Map<string, number>();
 const messageListeners = new Map<string, Set<() => void>>();
 
+const pendingContentUpdates = new Map<string, Map<string, string>>();
+const pendingRefUpdates = new Map<string, Map<string, string>>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
 let decryptEpoch = 0;
 let replyStoreRef: { set?: (channelId: string, messageId: string, entry: any) => void; } | null = null;
+
+function flushPendingUpdates(): void {
+    if (flushTimer !== null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+    }
+
+    let anyMessageChanged = false;
+    for (const [channelId, updates] of pendingContentUpdates) {
+        let cache = MessageCache.getOrCreate(channelId);
+        let channelDirty = false;
+        for (const [messageId, content] of updates) {
+            if (!cache.has(messageId)) continue;
+            if (MessageStore.getMessage(channelId, messageId)?.content === content) continue;
+            cache = cache.update(messageId, (oldMessage: any) => oldMessage.merge({ content }));
+            channelDirty = true;
+        }
+        if (channelDirty) {
+            MessageCache.commit(cache);
+            anyMessageChanged = true;
+        }
+    }
+    pendingContentUpdates.clear();
+    if (anyMessageChanged) MessageStore.emitChange();
+
+    let anyRefChanged = false;
+    if (replyStoreRef?.set && ReferencedMessageStore) {
+        for (const [channelId, updates] of pendingRefUpdates) {
+            for (const [messageId, content] of updates) {
+                try {
+                    const entry = ReferencedMessageStore.getMessageByReference({ channel_id: channelId, message_id: messageId });
+                    if (entry?.message && entry.message.content !== content) {
+                        const nextMsg = typeof (entry.message as any).merge === "function"
+                            ? (entry.message as any).merge({ content })
+                            : entry.message;
+                        replyStoreRef.set(channelId, messageId, { ...entry, message: nextMsg });
+                        anyRefChanged = true;
+                    }
+                } catch {
+                    // Ignore if Discord changes ReferencedMessageStore internals
+                }
+            }
+        }
+    }
+    pendingRefUpdates.clear();
+    if (anyRefChanged) ReferencedMessageStore.emitChange?.();
+}
+
+function queueContentUpdate(channelId: string, messageId: string, content: string): void {
+    let ch = pendingContentUpdates.get(channelId);
+    if (!ch) {
+        ch = new Map();
+        pendingContentUpdates.set(channelId, ch);
+    }
+    ch.set(messageId, content);
+
+    let ref = pendingRefUpdates.get(channelId);
+    if (!ref) {
+        ref = new Map();
+        pendingRefUpdates.set(channelId, ref);
+    }
+    ref.set(messageId, content);
+
+    if (flushTimer === null) {
+        flushTimer = setTimeout(flushPendingUpdates, BATCH_FLUSH_MS);
+    }
+}
 
 function setWireRecord(messageId: string, rec: WireRecord): void {
     if (wireRecords.has(messageId)) {
@@ -83,10 +154,7 @@ export function useWireRecord(messageId: string): WireRecord | undefined {
             set = new Set();
             messageListeners.set(messageId, set);
         }
-        const cb = () => {
-            const current = wireRecords.get(messageId);
-            setRec(current ? { ...current } : undefined);
-        };
+        const cb = () => setRec(wireRecords.get(messageId));
         set.add(cb);
         return () => {
             set?.delete(cb);
@@ -100,22 +168,6 @@ export function setReplyStore(store: any): void {
     replyStoreRef = store;
 }
 
-function updateReferencedMessageContent(channelId: string, messageId: string, content: string): void {
-    if (!replyStoreRef?.set || !ReferencedMessageStore) return;
-    try {
-        const entry = ReferencedMessageStore.getMessageByReference({ channel_id: channelId, message_id: messageId });
-        if (entry?.message && entry.message.content !== content) {
-            const nextMsg = typeof (entry.message as any).merge === "function"
-                ? (entry.message as any).merge({ content })
-                : entry.message;
-            replyStoreRef.set(channelId, messageId, { ...entry, message: nextMsg });
-            ReferencedMessageStore.emitChange?.();
-        }
-    } catch {
-        // Ignore if Discord changes ReferencedMessageStore internals
-    }
-}
-
 async function decryptRecord(messageId: string, rec: WireRecord): Promise<void> {
     const epoch = decryptEpoch;
     inflightDecrypts.set(messageId, epoch);
@@ -123,12 +175,11 @@ async function decryptRecord(messageId: string, rec: WireRecord): Promise<void> 
     let key = getEffectiveKey(rec.channelId);
     if (!key && isForced(rec.channelId)) {
         key = await prepare(rec.channelId);
-        if (epoch !== decryptEpoch) return;
+        if (epoch !== decryptEpoch || inflightDecrypts.get(messageId) !== epoch) return;
     }
 
     if (!key) {
-        rec.status = "failed";
-        rec.plaintext = undefined;
+        setWireRecord(messageId, { ...rec, status: "failed", plaintext: undefined, dims: undefined });
         notifyMessage(messageId);
         return;
     }
@@ -137,22 +188,22 @@ async function decryptRecord(messageId: string, rec: WireRecord): Promise<void> 
     if (epoch !== decryptEpoch || inflightDecrypts.get(messageId) !== epoch) return;
 
     if (plain === null) {
-        rec.status = "failed";
-        rec.plaintext = undefined;
-        updateMessage(rec.channelId, messageId, { content: rec.wireContent });
-        updateReferencedMessageContent(rec.channelId, messageId, rec.wireContent);
+        setWireRecord(messageId, { ...rec, status: "failed", plaintext: undefined, dims: undefined });
+        queueContentUpdate(rec.channelId, messageId, rec.wireContent);
         notifyMessage(messageId);
         return;
     }
 
     const parsed: ParsedSizeTag | null = extractSizeTag(plain);
     const displayText = parsed ? parsed.cleaned : plain;
-    rec.plaintext = displayText;
-    rec.dims = parsed ? { width: parsed.width, height: parsed.height } : undefined;
-    rec.status = "decrypted";
+    setWireRecord(messageId, {
+        ...rec,
+        plaintext: displayText,
+        dims: parsed ? { width: parsed.width, height: parsed.height } : undefined,
+        status: "decrypted"
+    });
 
-    updateMessage(rec.channelId, messageId, { content: displayText });
-    updateReferencedMessageContent(rec.channelId, messageId, displayText);
+    queueContentUpdate(rec.channelId, messageId, displayText);
     notifyMessage(messageId);
 }
 
@@ -172,10 +223,7 @@ export function ingestRawMessage(msg: Partial<Message> & { referenced_message?: 
 
     if (looksEncrypted(msg.content)) {
         if (existing && existing.wireContent === msg.content && existing.status === "decrypted" && existing.plaintext !== undefined) {
-            queueMicrotask(() => {
-                updateMessage(channelId, msg.id!, { content: existing.plaintext! });
-                updateReferencedMessageContent(channelId, msg.id!, existing.plaintext!);
-            });
+            queueContentUpdate(channelId, msg.id, existing.plaintext);
             return;
         }
         const rec: WireRecord = {
@@ -201,7 +249,7 @@ export function scanChannel(channelId: string | null | undefined): void {
         });
     }
     const collection = MessageStore.getMessages(channelId);
-    const list: Message[] | undefined = (collection as any)?._array;
+    const list: Message[] | undefined = (collection as any)?.toArray?.() ?? (collection as any)?._array;
     if (!Array.isArray(list)) return;
 
     for (const m of list) {
@@ -210,7 +258,7 @@ export function scanChannel(channelId: string | null | undefined): void {
             if (existing.status !== "decrypted") {
                 void decryptRecord(m.id, existing);
             } else if (existing.plaintext !== undefined && m.content === existing.wireContent) {
-                updateMessage(channelId, m.id, { content: existing.plaintext });
+                queueContentUpdate(channelId, m.id, existing.plaintext);
             }
         } else if (looksEncrypted(m.content)) {
             ingestRawMessage(m, channelId);
@@ -229,23 +277,24 @@ export function handleKeyChanged(reason: "set" | "clear"): void {
     decryptEpoch++;
     inflightDecrypts.clear();
 
+    const snapshot = Array.from(wireRecords.entries());
     if (reason === "clear") {
-        for (const [id, rec] of wireRecords) {
+        for (const [id, rec] of snapshot) {
             if (isForced(rec.channelId)) continue;
-            rec.status = "failed";
-            rec.plaintext = undefined;
-            updateMessage(rec.channelId, id, { content: rec.wireContent });
-            updateReferencedMessageContent(rec.channelId, id, rec.wireContent);
+            setWireRecord(id, { ...rec, status: "failed", plaintext: undefined, dims: undefined });
+            queueContentUpdate(rec.channelId, id, rec.wireContent);
             notifyMessage(id);
         }
+        flushPendingUpdates();
         return;
     }
 
-    for (const [id, rec] of wireRecords) {
+    for (const [id, rec] of snapshot) {
         if (isForced(rec.channelId)) continue;
-        rec.status = "pending";
+        const pendingRec: WireRecord = { ...rec, status: "pending" };
+        setWireRecord(id, pendingRec);
         notifyMessage(id);
-        void decryptRecord(id, rec);
+        void decryptRecord(id, pendingRec);
     }
 
     scanChannel(SelectedChannelStore.getChannelId());
@@ -254,10 +303,12 @@ export function handleKeyChanged(reason: "set" | "clear"): void {
 export function resetEngine(): void {
     decryptEpoch++;
     inflightDecrypts.clear();
+    pendingContentUpdates.clear();
+    pendingRefUpdates.clear();
     for (const [id, rec] of wireRecords) {
-        updateMessage(rec.channelId, id, { content: rec.wireContent });
-        updateReferencedMessageContent(rec.channelId, id, rec.wireContent);
+        queueContentUpdate(rec.channelId, id, rec.wireContent);
     }
+    flushPendingUpdates();
     wireRecords.clear();
     messageListeners.clear();
     replyStoreRef = null;

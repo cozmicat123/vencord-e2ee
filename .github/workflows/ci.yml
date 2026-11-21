@@ -1,8 +1,15 @@
 name: CI
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches-ignore: [builds]
+  pull_request:
+  workflow_dispatch:
+
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,3 +47,17 @@ jobs:
             /tmp/Vencord/dist/extension-chrome.zip
             /tmp/Vencord/dist/extension-firefox.zip
             /tmp/Vencord/dist/Vencord.user.js
+      - name: Publish VDE bundle to builds branch
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf /tmp/builds-pub && mkdir -p /tmp/builds-pub
+          cp /tmp/Vencord/dist/browser.js /tmp/Vencord/dist/browser.css /tmp/Vencord/dist/browser.js.LEGAL.txt /tmp/Vencord/dist/Vencord.user.js /tmp/builds-pub/
+          cd /tmp/builds-pub
+          git init -b builds
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Build from ${GITHUB_REF_NAME}@${GITHUB_SHA::7}"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" builds

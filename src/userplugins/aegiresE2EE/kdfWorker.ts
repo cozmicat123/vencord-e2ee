@@ -1,21 +1,30 @@
 import argon2Umd from "file://../../../node_modules/hash-wasm/dist/argon2.umd.min.js";
 
-const ARGON_MEMORY_KIB = 65536;
-const ARGON_PASSES = 3;
-const MASTER_LEN = 32;
+import type { ArgonParams } from "./crypto";
+
+type Argon2Fn = (opts: {
+    password: Uint8Array;
+    salt: Uint8Array;
+    parallelism: number;
+    iterations: number;
+    memorySize: number;
+    hashLength: number;
+    outputType: "binary";
+}) => Promise<Uint8Array>;
 
 const WORKER_TAIL = `
 self.onmessage = async (ev) => {
     const pw = new Uint8Array(ev.data.password);
     const salt = new Uint8Array(ev.data.salt);
+    const p = ev.data.params;
     try {
         const out = await self.hashwasm.argon2id({
             password: pw,
             salt,
-            parallelism: 1,
-            iterations: ${ARGON_PASSES},
-            memorySize: ${ARGON_MEMORY_KIB},
-            hashLength: ${MASTER_LEN},
+            parallelism: p.parallelism,
+            iterations: p.iterations,
+            memorySize: p.memorySize,
+            hashLength: p.hashLength,
             outputType: "binary"
         });
         const copy = new Uint8Array(out);
@@ -29,8 +38,22 @@ self.onmessage = async (ev) => {
 `;
 
 let workerBlocked = false;
+let fallbackArgon2id: Argon2Fn | null = null;
 
-export async function deriveKeyRawInWorker(password: Uint8Array, salt: Uint8Array): Promise<Uint8Array | null> {
+function getFallbackArgon2id(): Argon2Fn | null {
+    if (fallbackArgon2id) return fallbackArgon2id;
+    try {
+        const exportsObj: { argon2id?: Argon2Fn; } = {};
+        const mod = { exports: exportsObj };
+        new Function("exports", "module", argon2Umd)(exportsObj, mod);
+        fallbackArgon2id = exportsObj.argon2id ?? null;
+        return fallbackArgon2id;
+    } catch {
+        return null;
+    }
+}
+
+async function runInWorker(password: Uint8Array, salt: Uint8Array, params: ArgonParams): Promise<Uint8Array | null> {
     if (workerBlocked || typeof Worker === "undefined" || typeof Blob === "undefined" || typeof URL === "undefined") {
         return null;
     }
@@ -59,7 +82,7 @@ export async function deriveKeyRawInWorker(password: Uint8Array, salt: Uint8Arra
                 workerBlocked = true;
                 resolve(null);
             };
-            worker.postMessage({ password: pwBuf, salt: saltBuf }, [pwBuf, saltBuf]);
+            worker.postMessage({ password: pwBuf, salt: saltBuf, params }, [pwBuf, saltBuf]);
         });
     } catch {
         workerBlocked = true;
@@ -67,5 +90,26 @@ export async function deriveKeyRawInWorker(password: Uint8Array, salt: Uint8Arra
     } finally {
         worker?.terminate();
         if (url) URL.revokeObjectURL(url);
+    }
+}
+
+export async function deriveKeyRawInWorker(password: Uint8Array, salt: Uint8Array, params: ArgonParams): Promise<Uint8Array | null> {
+    try {
+        const workerOut = await runInWorker(password, salt, params);
+        if (workerOut) return workerOut;
+
+        const fn = getFallbackArgon2id();
+        if (!fn) return null;
+        return await fn({
+            password,
+            salt,
+            parallelism: params.parallelism,
+            iterations: params.iterations,
+            memorySize: params.memorySize,
+            hashLength: params.hashLength,
+            outputType: "binary"
+        });
+    } finally {
+        password.fill(0);
     }
 }

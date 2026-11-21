@@ -1,4 +1,3 @@
-import { argon2id } from "hash-wasm";
 import { gcm192 } from "./gcm192";
 
 export interface Preset {
@@ -49,7 +48,21 @@ export function looksEncrypted(s: string | null | undefined): s is string {
     return typeof s === "string" && s.startsWith(PREFIX);
 }
 
-export type RawKdfProvider = (password: Uint8Array, salt: Uint8Array) => Promise<Uint8Array | null>;
+export interface ArgonParams {
+    readonly parallelism: number;
+    readonly iterations: number;
+    readonly memorySize: number;
+    readonly hashLength: number;
+}
+
+export const ARGON_PARAMS: ArgonParams = {
+    parallelism: 1,
+    iterations: ARGON_PASSES,
+    memorySize: ARGON_MEMORY_KIB,
+    hashLength: MASTER_LEN
+};
+
+export type RawKdfProvider = (password: Uint8Array, salt: Uint8Array, params: ArgonParams) => Promise<Uint8Array | null>;
 let rawKdfProvider: RawKdfProvider | null = null;
 
 export function setRawKdfProvider(fn: RawKdfProvider | null): void {
@@ -57,23 +70,11 @@ export function setRawKdfProvider(fn: RawKdfProvider | null): void {
 }
 
 export async function deriveKeyRaw(password: string | null | undefined, context?: string): Promise<Uint8Array | null> {
-    if (!password) return null;
+    if (!password || !rawKdfProvider) return null;
     const pw = enc.encode(password.normalize("NFKC"));
     const salt = context !== undefined ? enc.encode("dcenc2|ctx|" + context) : USER_KEY_SALT;
     try {
-        if (rawKdfProvider) {
-            const out = await rawKdfProvider(pw.slice(), salt.slice());
-            if (out) return out;
-        }
-        return await argon2id({
-            password: pw,
-            salt,
-            parallelism: 1,
-            iterations: ARGON_PASSES,
-            memorySize: ARGON_MEMORY_KIB,
-            hashLength: MASTER_LEN,
-            outputType: "binary"
-        });
+        return await rawKdfProvider(pw.slice(), salt.slice(), ARGON_PARAMS);
     } catch {
         return null;
     } finally {

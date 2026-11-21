@@ -15,6 +15,8 @@ registerHooks({
 });
 
 const cryptoMod = await import("../src/userplugins/aegiresE2EE/crypto.ts");
+const { argon2id } = await import("hash-wasm");
+cryptoMod.setRawKdfProvider((password, salt, p) => argon2id({ password, salt, parallelism: p.parallelism, iterations: p.iterations, memorySize: p.memorySize, hashLength: p.hashLength, outputType: "binary" }));
 const forcedMod = await import("../src/userplugins/aegiresE2EE/forcedKeys.ts");
 const fileNamesMod = await import("../src/userplugins/aegiresE2EE/fileNames.ts");
 const sizeTagMod = await import("../src/userplugins/aegiresE2EE/sizeTag.ts");

@@ -1,5 +1,3 @@
-import "./styles.css";
-
 import { ChatBarButton, type ChatBarButtonFactory } from "@api/ChatButtons";
 import { Button } from "@components/Button";
 import { Divider } from "@components/Divider";

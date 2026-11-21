@@ -15,6 +15,7 @@ import { clearForcedKeys } from "./forcedKeys";
 import { deriveKeyRawInWorker } from "./kdfWorker";
 import { settings } from "./settings";
 import { clearUserKey, setOnKeyChanged, setPresetProvider } from "./state";
+import managedStyle from "./styles.css?managed";
 import { E2EEChatBarButton, EncryptedBadge, LockIcon } from "./ui";
 
 export default definePlugin({
@@ -22,6 +23,7 @@ export default definePlugin({
     description: "End-to-end encryption compatible with Aegires Android client (Argon2id + HKDF + AES-GCM).",
     authors: [{ name: "aegires-port", id: 0n }],
     settings,
+    managedStyle,
 
     patches: [
         {
