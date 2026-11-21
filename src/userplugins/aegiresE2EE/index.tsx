@@ -1,5 +1,6 @@
 import definePlugin from "@utils/types";
-import { SelectedChannelStore } from "@webpack/common";
+import type { Message } from "@vencord/discord-types";
+import { React, SelectedChannelStore } from "@webpack/common";
 
 import { DEFAULT_PRESET, presetFromIndex, setRawKdfProvider } from "./crypto";
 import {
@@ -13,6 +14,8 @@ import {
 } from "./engine";
 import { clearForcedKeys } from "./forcedKeys";
 import { deriveKeyRawInWorker } from "./kdfWorker";
+import { encryptUploads, isEncryptedAttachment } from "./media";
+import { EncryptedAttachmentsAccessory } from "./mediaUi";
 import { settings } from "./settings";
 import { clearUserKey, setOnKeyChanged, setPresetProvider } from "./state";
 import managedStyle from "./styles.css?managed";
@@ -32,10 +35,30 @@ export default definePlugin({
                 match: /_channelCaches=new Map;/,
                 replace: "$&_aegiresReplyStore=$self.setReplyStore(this);"
             }
+        },
+        {
+            find: "async uploadFiles(",
+            replacement: {
+                match: /async uploadFiles\((\i)\){/,
+                replace: "$&await $self.encryptUploads($1);"
+            }
+        },
+        {
+            find: "}renderStickersAccessories(",
+            replacement: {
+                match: /renderAttachments\(\i\){.+?{attachments:(\i).+?;/,
+                replace: (m, attachments) => `${m}${attachments}=$self.filterAttachments(${attachments});`
+            }
         }
     ],
 
     setReplyStore,
+    encryptUploads,
+
+    filterAttachments(attachments: Message["attachments"]) {
+        if (!Array.isArray(attachments)) return attachments;
+        return attachments.filter(a => !isEncryptedAttachment(a));
+    },
 
     flux: fluxHandlers,
 
@@ -45,7 +68,11 @@ export default definePlugin({
     },
 
     renderMessageDecoration({ message }) {
-        return <EncryptedBadge message={message} />;
+        return React.createElement(EncryptedBadge, { message });
+    },
+
+    renderMessageAccessory({ message }) {
+        return React.createElement(EncryptedAttachmentsAccessory, { message });
     },
 
     onBeforeMessageSend: handleBeforeMessageSend,

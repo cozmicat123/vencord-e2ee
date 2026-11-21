@@ -1,9 +1,10 @@
 import type { MessageObject } from "@api/MessageEvents";
 import type { Message } from "@vencord/discord-types";
-import { MessageCache, MessageStore, ReferencedMessageStore, SelectedChannelStore, showToast, useEffect, useState, UserStore } from "@webpack/common";
+import { DraftType, MessageCache, MessageStore, ReferencedMessageStore, SelectedChannelStore, showToast, UploadAttachmentStore, useEffect, useState, UserStore } from "@webpack/common";
 
 import { decrypt, encrypt, looksEncrypted, maxPlaintextBytes, PREFIX, type Preset, presetFromIndex, utf8Length } from "./crypto";
 import { isForced, keyFor, prepare } from "./forcedKeys";
+import { clearMediaCache, probeImageDimensions } from "./media";
 import { extractSizeTag, type ParsedSizeTag } from "./sizeTag";
 import { getEffectiveKey, getSelectedPreset, getUserKey, shouldEncryptChannel } from "./state";
 
@@ -275,6 +276,7 @@ export function scanChannel(channelId: string | null | undefined): void {
 
 export function handleKeyChanged(reason: "set" | "clear"): void {
     decryptEpoch++;
+    clearMediaCache(false);
     inflightDecrypts.clear();
 
     const snapshot = Array.from(wireRecords.entries());
@@ -302,6 +304,7 @@ export function handleKeyChanged(reason: "set" | "clear"): void {
 
 export function resetEngine(): void {
     decryptEpoch++;
+    clearMediaCache(true);
     inflightDecrypts.clear();
     pendingContentUpdates.clear();
     pendingRefUpdates.clear();
@@ -351,7 +354,17 @@ async function encryptOutgoing(channelId: string, messageObj: MessageObject): Pr
     messageObj.content = wire;
 }
 
-export function handleBeforeMessageSend(channelId: string, messageObj: MessageObject) {
+export async function handleBeforeMessageSend(channelId: string, messageObj: MessageObject) {
+    if (shouldEncryptChannel(channelId) && !looksEncrypted(messageObj.content)) {
+        const uploads = UploadAttachmentStore?.getUploads?.(channelId, DraftType.ChannelMessage) ?? [];
+        const firstImg = uploads.find(u => u?.isImage && u.item?.file);
+        if (firstImg) {
+            const dims = await probeImageDimensions(firstImg.item.file);
+            if (dims) {
+                messageObj.content = `[sz:${dims.width},${dims.height}]${messageObj.content ?? ""}`;
+            }
+        }
+    }
     return encryptOutgoing(channelId, messageObj);
 }
 
