@@ -2,7 +2,7 @@
 Next: Milestone 4 - encrypted file/media attachments (v3 64KiB chunked wire format in persistent Worker with transferable ArrayBuffers, upload hook `async uploadFiles(`, `[sz:W,H]` tag on image upload, attachment render/decrypt hook `this.renderAttachments(` with blob URL lifecycle cleanup).
 
 ## Setup & Pins
-- Repo: ~/vc-work/e2ee (branch `dev`, public) = github.com/cozmicat123/vencord-e2ee. Rolling VDE bundle URL: `https://raw.githubusercontent.com/cozmicat123/vencord-e2ee/builds/browser.js` (auto-published by CI on `dev`/`main` push).
+- Repo: ~/vc-work/e2ee (branch `dev`, public) = github.com/cozmicat123/vencord-e2ee. Rolling VDE bundle URL: `https://raw.githubusercontent.com/cozmicat123/vencord-e2ee/builds/browser.js` (auto-published by CI on `dev`/`main` push); rolling GitHub Prerelease `nightly` + `v*` tag releases host separate binaries (Chrome, Firefox, Userscript, VDE).
 - Device: OnePlus 12, Termux (node 26, npm 12, java 21, python3, gh authed). No PC; CI runs pnpm/Vencord builds.
 - Vencord: Vendicated/Vencord @ a846785 (v1.15.18, GPL-3.0-or-later, pnpm 12.15.0).
 - VendroidEnhanced: app @ 50c0ae0 (`~/vc-work/vde-app`), plugin @ 3741bd8 (`~/vc-work/vde-plugin`).
