@@ -6,6 +6,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  VENCORD_SHA: a846785482f96c50f1160a04217e1e90283d2ec1
+  VDE_PLUGIN_SHA: 3741bd8c7e19b3940cf3709271115bfc6d48c853
+  HASH_WASM_VER: 4.13.0
+  NOBLE_CIPHERS_VER: 2.4.0
+
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
@@ -13,26 +23,50 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '24' }
       - uses: pnpm/action-setup@v4
         with: { version: '12.15.0' }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
       - name: Run crypto vector tests
         run: npm ci && node tests/run.mjs
-      - name: Checkout Vencord & VDE plugins
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-vde-${{ env.VENCORD_SHA }}-${{ env.HASH_WASM_VER }}-${{ env.NOBLE_CIPHERS_VER }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-vde-${{ env.VENCORD_SHA }}-
+            ${{ runner.os }}-pnpm-vde-
+      - name: Shallow-fetch Vencord & VDE plugins in parallel
         run: |
-          git clone https://github.com/Vendicated/Vencord.git /tmp/Vencord
-          git -C /tmp/Vencord checkout a846785482f96c50f1160a04217e1e90283d2ec1
-          git clone --recursive https://git.nin0.dev/VendroidEnhanced/plugin.git /tmp/vde-plugin
-          git -C /tmp/vde-plugin checkout 3741bd8c7e19b3940cf3709271115bfc6d48c853
-          git -C /tmp/vde-plugin submodule update --init --recursive
+          (
+            git init /tmp/Vencord
+            git -C /tmp/Vencord remote add origin https://github.com/Vendicated/Vencord.git
+            git -C /tmp/Vencord fetch --depth 1 origin "$VENCORD_SHA" || git -C /tmp/Vencord fetch origin
+            git -C /tmp/Vencord checkout --detach "$VENCORD_SHA"
+          ) &
+          PID1=$!
+          (
+            git init /tmp/vde-plugin
+            git -C /tmp/vde-plugin remote add origin https://git.nin0.dev/VendroidEnhanced/plugin.git
+            git -C /tmp/vde-plugin fetch --depth 1 origin "$VDE_PLUGIN_SHA" || git -C /tmp/vde-plugin fetch origin
+            git -C /tmp/vde-plugin checkout --detach "$VDE_PLUGIN_SHA"
+            git -C /tmp/vde-plugin submodule update --init --recursive --depth 1 || git -C /tmp/vde-plugin submodule update --init --recursive
+          ) &
+          PID2=$!
+          wait "$PID1" "$PID2"
       - name: Install deps, typecheck plugin & build VDE web bundle
         working-directory: /tmp/Vencord
         run: |
           mkdir -p src/userplugins
           cp -r "$GITHUB_WORKSPACE/src/userplugins/aegiresE2EE" src/userplugins/
-          pnpm install --no-frozen-lockfile
-          pnpm add -w hash-wasm@4.13.0 @noble/ciphers@2.4.0
+          pnpm install --no-frozen-lockfile --prefer-offline
+          pnpm add -w "hash-wasm@${HASH_WASM_VER}" "@noble/ciphers@${NOBLE_CIPHERS_VER}"
           pnpm test:ts
           cp -r /tmp/vde-plugin/plugins/* src/plugins/
           node -e 'const fs=require("fs"),p=require("path");for(const l of fs.readFileSync("/tmp/vde-plugin/blacklisted-plugins.txt","utf8").split("\n")){const n=l.split("#")[0].trim();if(n)fs.rmSync(p.join("src/plugins",n),{recursive:true,force:true});}'
@@ -69,7 +103,7 @@ jobs:
             "$DIST/SHA256SUMS.txt"
           )
           cat <<NOTES > /tmp/release-notes.md
-          Built from \`${GITHUB_REF_NAME}@${GITHUB_SHA::7}\` (Vencord \`a846785\` + VendroidEnhanced plugins \`3741bd8\`).
+          Built from \`${GITHUB_REF_NAME}@${GITHUB_SHA::7}\` (Vencord \`${VENCORD_SHA::7}\` + VendroidEnhanced plugins \`${VDE_PLUGIN_SHA::7}\`).
 
           ### Quick Install
           - **VendroidEnhanced** (*Developer settings → Vencord location*):
