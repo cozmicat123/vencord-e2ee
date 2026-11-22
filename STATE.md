@@ -1,5 +1,5 @@
 # STATE.md: shared memory. Read first on "start".
-Next: Merge `dev` -> `main` and tag `v1.0.0` (triggers signed Firefox `.xpi` + stable release).
+Next: Maintenance & post-v1.0.0 fixes (verify signed .xpi install on Firefox/Iceraven and [sz:W,H] rendering in Aegires).
 
 ## Setup & Pins
 - Repo: ~/vc-work/e2ee (branch `dev`, public) = github.com/cozmicat123/vencord-e2ee.
@@ -36,3 +36,4 @@ Next: Merge `dev` -> `main` and tag `v1.0.0` (triggers signed Firefox `.xpi` + s
 - Live cross-platform bench verified (Titanium Chrome/157, VDE Vanadium Chrome/155 wv, Iceraven Gecko/160 + VM, Firefox Android Gecko/163 native ext): full JIT, Blob Worker WASM Argon2id (215-402ms), hardware WebCrypto AES-128/256 (143-1111 MiB/s), pure-JS AES-192 (9.4-31.9 MiB/s).
 
 - M4: Encrypted file/media attachments (v3 64KiB chunked wire in Worker with transferable ArrayBuffers, pre-upload `CloudUpload.prototype.upload` hook in `d8aed97` to prevent CDN plaintext leaks, `[sz:W,H]` dimension preservation in `114fbcf`, inline decrypt + blob URL cleanup, AMO unlisted Firefox `.xpi` signing on `v*` tags) — DONE.
+- v1.0.0: Merged `dev` -> `main` (`4f294b2`) and published stable release with all 8 assets including AMO-signed `vencord-e2ee-firefox-signed.xpi` — DONE.
